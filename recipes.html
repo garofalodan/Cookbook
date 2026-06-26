@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Recipe Book</title>
+  <meta name="description" content="A personal collection of recipes, organized by category.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="pub-header">
+  <h1>My Recipe Book</h1>
+  <p>a personal collection</p>
+</header>
+
+<nav class="pub-nav" id="pub-nav">
+  <a href="#all">All recipes</a>
+</nav>
+
+<div id="loading" style="text-align:center;padding:80px;color:var(--text3)">
+  <i class="ti ti-refresh spin" style="font-size:32px;display:block;margin-bottom:16px"></i>
+  Loading recipes...
+</div>
+
+<div class="pub-container" id="pub-container" style="display:none"></div>
+
+<footer class="pub-footer">
+  <a href="index.html" style="color:var(--amber)"><i class="ti ti-tools-kitchen"></i> Manage recipes</a>
+  &nbsp;·&nbsp; Made with my recipe book app
+</footer>
+
+<script src="supabase.js"></script>
+<script>
+const CATEGORIES = ['Breakfast & snacks','Mains','Sides','Soups & salads','Desserts','Drinks'];
+
+function formatNutrition(nut) {
+  if (!nut) return '';
+  const pills = [
+    `${nut.calories} kcal`,
+    `${nut.carbs}g carbs`,
+    nut.sugars !== undefined ? `<span class="pub-nut-sub">(${nut.sugars}g sugars)</span>` : '',
+    `${nut.fat}g fat`,
+    `${nut.protein}g protein`,
+    `${nut.fiber}g fiber`
+  ].filter(Boolean);
+  return `<div class="pub-nut-row">${pills.map(p => `<span class="pub-nut-pill">${p}</span>`).join('')}</div>`;
+}
+
+function renderRecipe(r) {
+  const ings = (r.ingredients || []).map(i =>
+    `<li>${i.amount ? i.amount + (i.unit ? i.unit + ' ' : ' ') : ''}${i.name}</li>`
+  ).join('');
+  const steps = (r.steps || []).map((s, idx) =>
+    `<li><strong>Step ${idx + 1}:</strong> ${s}</li>`
+  ).join('');
+  const meta = [
+    r.servings ? `${r.servings} servings` : '',
+    r.prep ? `${r.prep} prep` : '',
+    r.cook ? `${r.cook} cook` : ''
+  ].filter(Boolean).join(' · ');
+
+  return `
+    <div class="pub-recipe" id="recipe-${r.id}">
+      <div class="pub-recipe-header">
+        <h3>${r.name}</h3>
+        ${r.description ? `<p style="font-size:13px;color:var(--text2);margin-bottom:8px">${r.description}</p>` : ''}
+        ${meta ? `<div class="pub-recipe-meta">${meta}</div>` : ''}
+        ${formatNutrition(r.nutrition)}
+      </div>
+      <div class="pub-recipe-body">
+        <div>
+          <h4>Ingredients</h4>
+          <ul class="pub-ing-list">${ings}</ul>
+          ${r.serving_note ? `<p class="pub-serving-note"><strong>To serve:</strong> ${r.serving_note}</p>` : ''}
+        </div>
+        <div>
+          <h4>Method</h4>
+          <ol class="pub-step-list">${steps}</ol>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function init() {
+  try {
+    const rows = await db.getRecipes();
+
+    if (!rows.length) {
+      document.getElementById('loading').innerHTML = `
+        <div style="color:var(--text3)">
+          <i class="ti ti-chef-hat" style="font-size:48px;display:block;margin-bottom:16px"></i>
+          No recipes yet — <a href="index.html">add some in the manager</a>.
+        </div>`;
+      return;
+    }
+
+    // Group by category
+    const grouped = {};
+    CATEGORIES.forEach(c => grouped[c] = []);
+    rows.forEach(r => {
+      const cat = r.category || 'Mains';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(r);
+    });
+
+    // Build nav
+    const activeCats = CATEGORIES.filter(c => grouped[c] && grouped[c].length > 0);
+    document.getElementById('pub-nav').innerHTML =
+      activeCats.map(c => `<a href="#cat-${c.replace(/[^a-z]/gi,'-')}">${c}</a>`).join('');
+
+    // Build content
+    const container = document.getElementById('pub-container');
+    container.innerHTML = activeCats.map(cat => `
+      <div class="pub-category" id="cat-${cat.replace(/[^a-z]/gi,'-')}">
+        <h2>${cat}</h2>
+        ${grouped[cat].map(renderRecipe).join('')}
+      </div>`).join('');
+
+    document.getElementById('loading').style.display = 'none';
+    container.style.display = 'block';
+
+  } catch(e) {
+    document.getElementById('loading').innerHTML = `
+      <div class="banner error" style="max-width:500px;margin:0 auto">
+        <i class="ti ti-alert-circle"></i> Could not load recipes. Check your Supabase connection.
+      </div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
