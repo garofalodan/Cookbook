@@ -2,6 +2,26 @@
 const SUPABASE_URL = 'https://uefsaowuuvlvobcgpnfq.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVlZnNhb3d1dXZsdm9iY2dwbmZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0NDQyOTEsImV4cCI6MjA5ODAyMDI5MX0.sNCiX6s1l4AcK_qhg4NonqGXSKFFa0aRXQ0iI5FRBmQ';
 
+// ── Edge Function URL (proxies Anthropic API to avoid CORS) ─────────────────
+const CLAUDE_PROXY_URL = `${SUPABASE_URL}/functions/v1/claude-proxy`;
+
+// ── Anthropic API call via Supabase Edge Function ────────────────────────────
+async function callClaude({ model = 'claude-sonnet-4-6', max_tokens = 2000, messages }) {
+  const res = await fetch(CLAUDE_PROXY_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ model, max_tokens, messages })
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Claude proxy error ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
 // ── Supabase Client (lightweight, no SDK needed) ──────────────────────────────
 const db = {
   headers: {
@@ -106,3 +126,20 @@ const db = {
     };
   }
 };
+
+// ── Keep Supabase active (prevents free tier pausing) ────────────────────────
+// Pings the database silently on page load. Supabase pauses after 7 days of
+// inactivity — any API call resets the timer. This costs nothing and is instant.
+async function keepSupabaseAlive() {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/recipes?limit=1&select=id`, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      }
+    });
+    // Silent success — no UI feedback needed
+  } catch(e) {
+    // Silent failure — don't interrupt the app
+  }
+}

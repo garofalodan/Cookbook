@@ -86,6 +86,9 @@ function renderRecipe(r) {
 }
 
 async function init() {
+  // Ping Supabase to prevent free tier pausing
+  keepSupabaseAlive();
+
   try {
     const rows = await db.getRecipes();
 
