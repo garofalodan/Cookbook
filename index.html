@@ -423,6 +423,7 @@ async function saveRecipe() {
   const needsNutrition = ingredientsChanged || !editingId;
   if (needsNutrition && data.ingredients.length > 0) {
     document.getElementById('save-status').innerHTML = '<i class="ti ti-refresh spin"></i> Checking ingredients...';
+    data.servings = parseInt(data.servings) || 4;
     const nut = calcNutrition(data.ingredients, data.servings);
     data.nutrition = nut;
     renderNutritionGrid(nut, document.getElementById('nut-grid'), document.getElementById('nut-banner'), document.getElementById('ing-list'));
@@ -443,6 +444,7 @@ async function saveRecipe() {
 async function finaliseSave(data) {
   // Recalculate with any newly looked-up ingredients
   if (data.ingredients && data.ingredients.length > 0 && (ingredientsChanged || !editingId)) {
+    data.servings = parseInt(data.servings) || 4;
     const nut = calcNutrition(data.ingredients, data.servings);
     data.nutrition = nut;
     renderNutritionGrid(nut, document.getElementById('nut-grid'), document.getElementById('nut-banner'), document.getElementById('ing-list'));
@@ -608,6 +610,7 @@ async function runImport() {
   const prompt = `You are a recipe parser. Extract structured data from the following recipe text and return ONLY valid JSON with no markdown, no explanation, no code fences.
 Return exactly this structure:
 {"name":"Recipe name","category":"one of: Breakfast & snacks, Mains, Sides, Soups & salads, Desserts, Drinks","servings":4,"prep":"10 min","cook":"30 min","desc":"One or two sentence description","ingredients":[{"name":"ingredient name","amount":"number only","unit":"g or ml or cup or tbsp or tsp or oz or lb or empty string"}],"steps":["Step one","Step two"],"servingNote":"optional or empty string"}
+IMPORTANT: "servings" must be an integer extracted from the text (e.g. "serves 4", "makes 12 cookies", "yield: 6"). Nutrition will be divided by this number to produce per-serving values. Default to 4 if not stated.
 Recipe text:\n${text}`;
 
   try {
@@ -616,6 +619,8 @@ Recipe text:\n${text}`;
     fill.style.width = '80%';
     const raw = json.content?.[0]?.text || '{}';
     const data = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    // Ensure servings is always a valid integer — AI sometimes omits it
+    data.servings = parseInt(data.servings) || 4;
     if (data.ingredients && data.ingredients.length > 0) {
       data.nutrition = calcNutrition(data.ingredients, data.servings);
     }
