@@ -28,21 +28,33 @@
     .editor-actions { display: flex; gap: 8px; padding-top: 18px; border-top: 1px solid var(--border); margin-top: 20px; justify-content: flex-end; align-items: center; }
     .save-status { font-size: 12px; color: var(--text2); flex: 1; }
     .mapping-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
-    .mapping-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text3); font-weight: 600; padding: 0 8px 8px; }
-    .mapping-table td { padding: 7px 8px; border-top: 1px solid var(--border); vertical-align: middle; }
+    .mapping-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text3); font-weight: 600; padding: 0 8px 10px; }
+    .mapping-table td { padding: 8px 8px; border-top: 1px solid var(--border); vertical-align: middle; }
     .mapping-table tr:hover td { background: var(--bg2); }
     .mapping-ing { font-weight: 500; color: var(--text); }
     .mapping-arrow { color: var(--text3); font-size: 14px; text-align: center; width: 24px; }
     .mapping-match { color: var(--teal); font-weight: 500; }
     .mapping-unmatched { color: var(--red); font-style: italic; }
-    .mapping-override { font-size: 12px; padding: 4px 8px; border: 1.5px solid var(--border2); border-radius: var(--radius); background: #fff; color: var(--text); font-family: var(--sans); width: 200px; }
-    .mapping-override:focus { outline: none; border-color: var(--amber-mid); }
-    .mapping-override.overridden { border-color: var(--amber-mid); background: var(--amber-lt); }
-    .mapping-cal { color: var(--text2); font-size: 11px; white-space: nowrap; }
+    .mapping-cal { font-size: 11px; white-space: nowrap; }
+    .mapping-cal strong { color: var(--text); }
+    .mapping-cal span { color: var(--text3); }
     .mapping-section { margin-top: 20px; }
-    .mapping-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-    .mapping-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--teal-dk); }
-    .mapping-subtitle { font-size: 11px; color: var(--text3); }
+    .mapping-subtitle { font-size: 11px; color: var(--text3); margin-bottom: 10px; }
+
+    /* Autocomplete dropdown */
+    .ac-wrap { position: relative; width: 220px; }
+    .ac-input { font-size: 12px; padding: 5px 10px; border: 1.5px solid var(--border2); border-radius: var(--radius); background: #fff; color: var(--text); font-family: var(--sans); width: 100%; transition: border-color 0.12s; }
+    .ac-input:focus { outline: none; border-color: var(--amber-mid); box-shadow: 0 0 0 3px rgba(232,134,26,0.1); }
+    .ac-input.overridden { border-color: var(--amber-mid); background: var(--amber-lt); }
+    .ac-dropdown { position: absolute; top: calc(100% + 3px); left: 0; right: 0; background: #fff; border: 1.5px solid var(--border2); border-radius: var(--radius); max-height: 200px; overflow-y: auto; z-index: 300; box-shadow: 0 4px 16px rgba(0,0,0,0.12); display: none; }
+    .ac-dropdown.open { display: block; }
+    .ac-item { padding: 7px 10px; font-size: 12px; cursor: pointer; color: var(--text); border-bottom: 1px solid var(--border); }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item:hover, .ac-item.selected { background: var(--amber-lt); color: var(--amber-dk); }
+    .ac-item em { font-style: normal; font-weight: 600; color: var(--amber); }
+    .ac-empty { padding: 8px 10px; font-size: 12px; color: var(--text3); font-style: italic; }
+    .ac-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text3); font-size: 14px; padding: 0; display: none; }
+    .ac-input.overridden ~ .ac-clear { display: block; }
     .import-box { background: #fff; border: 1px solid var(--border2); border-radius: var(--radius-lg); padding: 24px; max-width: 680px; }
     .import-textarea { width: 100%; font-size: 13px; padding: 12px; border: 1px solid var(--border2); border-radius: var(--radius); background: var(--bg2); color: var(--text); font-family: var(--sans); resize: vertical; min-height: 200px; line-height: 1.6; }
     .import-textarea:focus { outline: none; border-color: var(--amber-mid); }
@@ -200,10 +212,10 @@
       <table class="mapping-table" id="mapping-table">
         <thead><tr>
           <th>Recipe ingredient</th>
-          <th class="mapping-arrow"></th>
+          <th style="width:28px"></th>
           <th>Matched database entry</th>
-          <th>Override</th>
-          <th>Per 100g</th>
+          <th>Override (search to change)</th>
+          <th>Nutrition</th>
         </tr></thead>
         <tbody id="mapping-tbody"></tbody>
       </table>
@@ -733,8 +745,107 @@ async function deleteCustomIngredient(id, name) {
 }
 
 // ── Ingredient mapping display ───────────────────────────────────────────────
-// Stores user overrides: { ingredientName -> overrideKey }
-const mappingOverrides = {};
+const mappingOverrides = {}; // { ingredientName.toLowerCase() -> nutKey }
+let activeAcDropdown = null; // currently open autocomplete
+
+// All NUT keys sorted for autocomplete — built once at runtime
+let nutKeysSorted = [];
+function getNutKeys() {
+  if (!nutKeysSorted.length) {
+    nutKeysSorted = Object.keys(NUT).sort();
+  }
+  return nutKeysSorted;
+}
+
+// Search NUT keys by query — returns up to maxResults matches
+function searchNutKeys(query, maxResults = 12) {
+  if (!query || query.length < 1) return [];
+  const q = query.toLowerCase().trim();
+  const keys = getNutKeys();
+  const exact = [], starts = [], contains = [];
+  for (const k of keys) {
+    if (k === q) exact.push(k);
+    else if (k.startsWith(q)) starts.push(k);
+    else if (k.includes(q)) contains.push(k);
+    if (exact.length + starts.length + contains.length >= maxResults * 2) break;
+  }
+  return [...exact, ...starts, ...contains].slice(0, maxResults);
+}
+
+// Highlight matching portion of a key
+function highlightMatch(key, query) {
+  const idx = key.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return key;
+  return key.slice(0, idx) + '<em>' + key.slice(idx, idx + query.length) + '</em>' + key.slice(idx + query.length);
+}
+
+// Format nutrition in natural units for display in mapping table
+function formatNaturalUnit(data, ingName) {
+  if (!data) return '—';
+  const name = (ingName || '').toLowerCase();
+
+  // Determine best display unit based on ingredient type
+  let unit, unitLabel, grams;
+
+  // Spices & seasonings — show per 1 tsp
+  const spiceWords = ['powder','spice','pepper','salt','cumin','paprika','turmeric',
+    'cinnamon','oregano','thyme','rosemary','basil','garam','curry','cayenne',
+    'chilli','chili','cardamom','cloves','nutmeg','allspice','ginger','saffron',
+    'sumac','fennel seed','mustard seed','coriander seed','bay','marjoram',
+    'tarragon','garlic powder','onion powder','vanilla extract','matcha'];
+  const isSpice = spiceWords.some(w => name.includes(w));
+
+  // Liquids — show per 1 tbsp
+  const liquidWords = ['oil','butter','ghee','sauce','vinegar','syrup','honey','molasses',
+    'cream','milk','broth','stock','juice','wine','beer','water','dressing',
+    'ketchup','mustard','mayo','pesto','salsa','tahini','soy sauce','tamari',
+    'fish sauce','oyster sauce','worcestershire','sriracha','hot sauce','hoisin',
+    'teriyaki','bbq sauce','lemon juice','lime juice'];
+  const isLiquid = liquidWords.some(w => name.includes(w));
+
+  // Solid foods measured in cups
+  const cupWords = ['oats','rice','flour','sugar','cheese','yogurt','beans','lentils',
+    'chickpeas','spinach','kale','berries','nuts','seeds','chocolate chips',
+    'coconut','breadcrumbs','cornmeal','quinoa','couscous'];
+  const isCupFood = cupWords.some(w => name.includes(w));
+
+  if (isSpice && data.tspG) {
+    grams = data.tspG;
+    unitLabel = '1 tsp';
+  } else if (isSpice && data.tbspG) {
+    grams = data.tbspG / 3;
+    unitLabel = '1 tsp';
+  } else if (isLiquid && data.tbspG) {
+    grams = data.tbspG;
+    unitLabel = '1 tbsp';
+  } else if (isLiquid && data.cupG) {
+    grams = data.cupG / 16;
+    unitLabel = '1 tbsp';
+  } else if (isCupFood && data.cupG) {
+    grams = data.cupG;
+    unitLabel = '1 cup';
+  } else if (data.cupG) {
+    grams = data.cupG;
+    unitLabel = '1 cup';
+  } else if (data.tbspG) {
+    grams = data.tbspG;
+    unitLabel = '1 tbsp';
+  } else if (data.tspG) {
+    grams = data.tspG;
+    unitLabel = '1 tsp';
+  } else {
+    grams = 100;
+    unitLabel = '100g';
+  }
+
+  const f = grams / 100;
+  const cal  = Math.round(data.cal  * f);
+  const carb = Math.round(data.carb * f * 10) / 10;
+  const fat  = Math.round(data.fat  * f * 10) / 10;
+  const pro  = Math.round(data.pro  * f * 10) / 10;
+
+  return `<strong>${cal} kcal</strong> <span>· ${carb}g carbs · ${fat}g fat · ${pro}g protein <em style="font-style:normal;color:var(--text3)">(per ${unitLabel})</em></span>`;
+}
 
 function renderMappingTable(ingredients, servings) {
   const section = document.getElementById('mapping-section');
@@ -746,144 +857,188 @@ function renderMappingTable(ingredients, servings) {
   section.style.display = 'block';
   tbody.innerHTML = '';
 
-  ingredients.forEach(ing => {
+  ingredients.forEach((ing, idx) => {
     if (!ing.name) return;
-    // Check for user override first
-    const overrideKey = mappingOverrides[ing.name.toLowerCase()];
-    const matchedData = overrideKey
-      ? NUT[overrideKey]
-      : matchIngredient(ing.name);
-    const matchedKey = overrideKey || getMatchedKey(ing.name);
+    const ingKey = ing.name.toLowerCase();
+    const overrideKey = mappingOverrides[ingKey];
+    const matchedData = overrideKey ? NUT[overrideKey] : matchIngredient(ing.name);
+    const matchedKey  = overrideKey || getMatchedKey(ing.name);
+    const isOverridden = !!overrideKey;
 
     const tr = document.createElement('tr');
-    const isUnmatched = !matchedData;
 
-    // Column 1: recipe ingredient
+    // Col 1: recipe ingredient
     const tdIng = document.createElement('td');
-    tdIng.innerHTML = `<span class="mapping-ing">${ing.amount || ''}${ing.unit ? ' ' + ing.unit : ''} ${ing.name}</span>`;
+    tdIng.innerHTML = `<span class="mapping-ing">${ing.amount || ''}${ing.unit ? ' ' + ing.unit : ''} ${ing.name}</span>`;
 
-    // Column 2: arrow
+    // Col 2: arrow
     const tdArrow = document.createElement('td');
     tdArrow.className = 'mapping-arrow';
-    tdArrow.innerHTML = '<i class="ti ti-arrow-right"></i>';
+    tdArrow.innerHTML = matchedData
+      ? '<i class="ti ti-arrow-right" style="color:var(--teal)"></i>'
+      : '<i class="ti ti-alert-circle" style="color:var(--red)"></i>';
 
-    // Column 3: matched entry
+    // Col 3: matched entry
     const tdMatch = document.createElement('td');
     if (matchedData && matchedKey) {
-      const flag = overrideKey ? ' <span style="font-size:10px;background:var(--amber-lt);color:var(--amber-dk);padding:1px 6px;border-radius:4px;border:1px solid var(--amber-mid)">overridden</span>' : '';
-      tdMatch.innerHTML = `<span class="mapping-match">${matchedKey}</span>${flag}`;
+      const badge = isOverridden
+        ? ' <span style="font-size:10px;background:var(--amber-lt);color:var(--amber-dk);padding:1px 6px;border-radius:4px;border:1px solid var(--amber-mid);margin-left:4px">overridden</span>'
+        : '';
+      tdMatch.innerHTML = `<span class="mapping-match">${matchedKey}</span>${badge}`;
     } else {
-      tdMatch.innerHTML = `<span class="mapping-unmatched"><i class="ti ti-alert-circle"></i> No match found</span>`;
+      tdMatch.innerHTML = `<span class="mapping-unmatched">No match — enter override →</span>`;
     }
 
-    // Column 4: override input
+    // Col 4: autocomplete override
     const tdOverride = document.createElement('td');
+    const wrap = document.createElement('div');
+    wrap.className = 'ac-wrap';
+
     const input = document.createElement('input');
     input.type = 'text';
-    input.className = 'mapping-override' + (overrideKey ? ' overridden' : '');
-    input.placeholder = 'Type to override...';
+    input.className = 'ac-input' + (isOverridden ? ' overridden' : '');
+    input.placeholder = 'Search database...';
     input.value = overrideKey || '';
-    input.dataset.ingredient = ing.name.toLowerCase();
-    input.title = 'Type an ingredient name from our database to override the match';
+    input.autocomplete = 'off';
+    input.dataset.ingKey = ingKey;
+    input.dataset.idx = idx;
 
-    // Autocomplete-style — validate on blur
-    input.addEventListener('change', function() {
-      applyMappingOverride(this.dataset.ingredient, this.value.trim(), servings, ingredients);
-    });
-    input.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') this.blur();
-    });
-    tdOverride.appendChild(input);
+    const dropdown = document.createElement('div');
+    dropdown.className = 'ac-dropdown';
 
-    // Column 5: nutrition per 100g
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'ac-clear';
+    clearBtn.innerHTML = '<i class="ti ti-x"></i>';
+    clearBtn.title = 'Clear override';
+    clearBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      input.value = '';
+      input.className = 'ac-input';
+      delete mappingOverrides[ingKey];
+      recalcWithOverrides(ingredients, servings);
+      renderMappingTable(ingredients, servings);
+      showToast('Override cleared');
+    };
+
+    // Autocomplete events
+    input.addEventListener('input', () => {
+      const q = input.value.trim();
+      if (!q) { dropdown.className = 'ac-dropdown'; return; }
+      const results = searchNutKeys(q);
+      if (!results.length) {
+        dropdown.innerHTML = '<div class="ac-empty">No matches found</div>';
+      } else {
+        dropdown.innerHTML = results.map(k =>
+          `<div class="ac-item" data-key="${k}">${highlightMatch(k, q)}</div>`
+        ).join('');
+        dropdown.querySelectorAll('.ac-item').forEach(item => {
+          item.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            selectOverride(ingKey, item.dataset.key, input, dropdown, ingredients, servings);
+          });
+        });
+      }
+      dropdown.className = 'ac-dropdown open';
+      activeAcDropdown = dropdown;
+    });
+
+    input.addEventListener('focus', () => {
+      if (input.value.trim()) input.dispatchEvent(new Event('input'));
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => { dropdown.className = 'ac-dropdown'; }, 150);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      const items = dropdown.querySelectorAll('.ac-item');
+      const current = dropdown.querySelector('.ac-item.selected');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = current ? current.nextElementSibling : items[0];
+        if (next) { current?.classList.remove('selected'); next.classList.add('selected'); }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prev = current ? current.previousElementSibling : items[items.length-1];
+        if (prev) { current?.classList.remove('selected'); prev.classList.add('selected'); }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (current) selectOverride(ingKey, current.dataset.key, input, dropdown, ingredients, servings);
+        else if (items.length === 1) selectOverride(ingKey, items[0].dataset.key, input, dropdown, ingredients, servings);
+      } else if (e.key === 'Escape') {
+        dropdown.className = 'ac-dropdown';
+      }
+    });
+
+    wrap.append(input, dropdown, clearBtn);
+    tdOverride.appendChild(wrap);
+
+    // Col 5: nutrition in natural units
     const tdCal = document.createElement('td');
-    if (matchedData) {
-      tdCal.className = 'mapping-cal';
-      tdCal.innerHTML = `${Math.round(matchedData.cal)} kcal · ${Math.round(matchedData.carb)}g carbs · ${Math.round(matchedData.fat)}g fat · ${Math.round(matchedData.pro)}g protein`;
-    } else {
-      tdCal.innerHTML = '<span style="color:var(--text3);font-size:11px">—</span>';
-    }
+    tdCal.className = 'mapping-cal';
+    tdCal.innerHTML = formatNaturalUnit(matchedData, matchedKey || ing.name);
 
     tr.append(tdIng, tdArrow, tdMatch, tdOverride, tdCal);
     tbody.appendChild(tr);
   });
 }
 
-function getMatchedKey(name) {
-  // Returns the key that matchIngredient would use
-  const n = cleanIngredientName ? cleanIngredientName(name) : name.toLowerCase().trim();
-  const raw = name.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '');
-  const beforeComma = name.toLowerCase().split(',')[0].trim().replace(/[^a-z0-9 ]/g, '');
+function selectOverride(ingKey, nutKey, input, dropdown, ingredients, servings) {
+  mappingOverrides[ingKey] = nutKey;
+  input.value = nutKey;
+  input.className = 'ac-input overridden';
+  dropdown.className = 'ac-dropdown';
+  showToast(`Mapped to "${nutKey}"`, 'success');
+  recalcWithOverrides(ingredients, servings);
+  renderMappingTable(ingredients, servings);
+}
 
-  for (const candidate of [raw, n, beforeComma]) {
-    if (!candidate) continue;
-    if (NUT[candidate]) return candidate;
+function recalcWithOverrides(ingredients, servings) {
+  // Temporarily patch NUT with overrides, recalc, restore
+  const saved = {};
+  ingredients.forEach(ing => {
+    const override = mappingOverrides[ing.name.toLowerCase()];
+    if (override) {
+      const rawKey = ing.name.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '');
+      saved[rawKey] = NUT[rawKey];
+      NUT[rawKey] = NUT[override];
+    }
+  });
+  const s = parseInt(servings) || 4;
+  const nut = calcNutrition(ingredients, s);
+  Object.entries(saved).forEach(([k,v]) => { if (v===undefined) delete NUT[k]; else NUT[k]=v; });
+  renderNutritionGrid(nut, document.getElementById('nut-grid'), document.getElementById('nut-banner'), document.getElementById('ing-list'));
+}
+
+function getMatchedKey(name) {
+  const raw = name.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '');
+  const clean = typeof cleanIngredientName === 'function' ? cleanIngredientName(name) : raw;
+  const beforeComma = name.toLowerCase().split(',')[0].trim().replace(/[^a-z0-9 ]/g, '');
+  for (const n of [raw, clean, beforeComma]) {
+    if (!n) continue;
+    if (NUT[n]) return n;
     for (const key of Object.keys(NUT)) {
-      if (candidate === key || candidate.includes(key) || key.includes(candidate)) return key;
+      if (n === key || n.includes(key) || key.includes(n)) return key;
     }
   }
-  // Word overlap
-  const words = n.split(' ').filter(w => w.length > 1);
+  const words = clean.split(' ').filter(w => w.length > 1);
   let bestKey = null, bestScore = 0;
   for (const key of Object.keys(NUT)) {
     const kw = new Set(key.split(' ').filter(w => w.length > 1));
-    const overlap = words.filter(w => kw.has(w)).length;
-    const score = overlap - Math.abs(words.length - kw.size) * 0.1;
+    const score = words.filter(w => kw.has(w)).length - Math.abs(words.length - kw.size) * 0.1;
     if (score > bestScore) { bestScore = score; bestKey = key; }
   }
   return bestScore >= 1 ? bestKey : null;
 }
 
-function applyMappingOverride(ingredientName, overrideValue, servings, ingredients) {
-  const key = overrideValue.toLowerCase().trim();
-
-  if (!overrideValue) {
-    // Clear override
-    delete mappingOverrides[ingredientName];
-    showToast('Override cleared');
-  } else if (NUT[key]) {
-    // Valid key — apply override
-    mappingOverrides[ingredientName] = key;
-    showToast(`"${ingredientName}" now mapped to "${key}"`, 'success');
-  } else {
-    // Try fuzzy match
-    const fuzzy = Object.keys(NUT).find(k => k.includes(key) || key.includes(k));
-    if (fuzzy) {
-      mappingOverrides[ingredientName] = fuzzy;
-      showToast(`Mapped to "${fuzzy}"`, 'success');
-    } else {
-      showToast(`"${overrideValue}" not found in database — try a simpler name`, 'error');
-      return;
-    }
+// Close any open autocomplete when clicking outside
+document.addEventListener('click', (e) => {
+  if (activeAcDropdown && !e.target.closest('.ac-wrap')) {
+    activeAcDropdown.className = 'ac-dropdown';
+    activeAcDropdown = null;
   }
-
-  // Recalculate nutrition with overrides applied
-  const overriddenIngredients = ingredients.map(ing => {
-    const override = mappingOverrides[ing.name.toLowerCase()];
-    return override ? { ...ing, _overrideKey: override } : ing;
-  });
-
-  // Apply overrides to NUT temporarily during calculation
-  const savedEntries = {};
-  overriddenIngredients.forEach(ing => {
-    if (ing._overrideKey) {
-      const origKey = ing.name.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '');
-      savedEntries[origKey] = NUT[origKey];
-      NUT[origKey] = NUT[ing._overrideKey];
-    }
-  });
-
-  const nut = calcNutrition(ingredients, servings);
-
-  // Restore NUT
-  Object.entries(savedEntries).forEach(([k,v]) => {
-    if (v === undefined) delete NUT[k];
-    else NUT[k] = v;
-  });
-
-  renderNutritionGrid(nut, document.getElementById('nut-grid'), document.getElementById('nut-banner'), document.getElementById('ing-list'));
-  renderMappingTable(ingredients, servings);
-}
+});
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
 init();
