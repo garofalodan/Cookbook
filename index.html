@@ -190,7 +190,14 @@
     <div id="ing-list"></div>
     <button class="add-row-btn" onclick="addIngredientRow()"><i class="ti ti-plus"></i> Add ingredient</button>
 
-    <div style="margin-top:16px">
+    <div style="margin-top:14px;display:flex;align-items:center;gap:10px">
+      <button class="btn btn-sm" id="refresh-nutrition-btn" onclick="refreshNutrition()" style="background:var(--teal-lt);border-color:var(--teal-mid);color:var(--teal-dk)">
+        <i class="ti ti-refresh"></i> Refresh Nutrition
+      </button>
+      <span id="refresh-status" style="font-size:11px;color:var(--text3)"></span>
+    </div>
+
+    <div style="margin-top:12px">
       <div id="nut-banner"></div>
       <div class="nut-grid" id="nut-grid"></div>
     </div>
@@ -1039,6 +1046,71 @@ document.addEventListener('click', (e) => {
     activeAcDropdown = null;
   }
 });
+
+// ── Nutrition refresh ────────────────────────────────────────────────────────
+function refreshNutrition() {
+  const btn = document.getElementById('refresh-nutrition-btn');
+  const status = document.getElementById('refresh-status');
+  const ingList = document.getElementById('ing-list');
+  const servings = parseInt(document.getElementById('f-servings').value) || 4;
+
+  // Gather current ingredients from the editor
+  const ingredients = gatherIngredients(ingList);
+  if (!ingredients.length) {
+    status.textContent = 'Add some ingredients first.';
+    setTimeout(() => { status.textContent = ''; }, 2500);
+    return;
+  }
+
+  // Animate button
+  btn.innerHTML = '<i class="ti ti-refresh spin"></i> Calculating...';
+  btn.disabled = true;
+
+  // Small delay so the spin animation is visible
+  setTimeout(() => {
+    // Apply any active overrides
+    const saved = {};
+    ingredients.forEach(ing => {
+      const override = mappingOverrides[ing.name.toLowerCase()];
+      if (override) {
+        const rawKey = ing.name.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '');
+        saved[rawKey] = NUT[rawKey];
+        NUT[rawKey] = NUT[override];
+      }
+    });
+
+    const nut = calcNutrition(ingredients, servings);
+
+    // Restore NUT
+    Object.entries(saved).forEach(([k,v]) => {
+      if (v === undefined) delete NUT[k];
+      else NUT[k] = v;
+    });
+
+    // Update nutrition display
+    renderNutritionGrid(
+      nut,
+      document.getElementById('nut-grid'),
+      document.getElementById('nut-banner'),
+      ingList
+    );
+
+    // Update mapping table
+    renderMappingTable(ingredients, servings);
+
+    // Reset button
+    btn.innerHTML = '<i class="ti ti-refresh"></i> Refresh Nutrition';
+    btn.disabled = false;
+
+    // Show timestamp
+    const now = new Date();
+    status.textContent = `Updated ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}`;
+    setTimeout(() => { status.textContent = ''; }, 4000);
+
+    // Mark as changed so Save will recalculate with final ingredients
+    ingredientsChanged = true;
+  }, 150);
+}
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
 init();
