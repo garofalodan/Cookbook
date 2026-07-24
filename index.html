@@ -98,12 +98,36 @@
       <input type="text" id="search-input" placeholder="Search by name or ingredient..." oninput="renderLibrary()">
       <select id="cat-filter" onchange="renderLibrary()">
         <option value="">All categories</option>
-        <option>Breakfast &amp; snacks</option>
-        <option>Mains</option>
-        <option>Sides</option>
-        <option>Soups &amp; salads</option>
-        <option>Desserts</option>
-        <option>Drinks</option>
+        <option>Asian</option>
+        <option>Brines, Marinades, Sauces, and Rubs</option>
+        <option>Breads and Pizzas</option>
+        <option>Breakfast</option>
+        <option>Burgers</option>
+        <option>Cakes</option>
+        <option>Cookies</option>
+        <option>Frozen Desserts and Custard</option>
+        <option>Equipment</option>
+        <option>Fish and Seafood</option>
+        <option>Grilling and Smoking</option>
+        <option>Italian</option>
+        <option>Lunches</option>
+        <option>Meat</option>
+        <option>Mexican</option>
+        <option>Pickles</option>
+        <option>Pies, Cobblers, and Tarts</option>
+        <option>Poultry</option>
+        <option>Quinoa Casseroles</option>
+        <option>Recipes to Try</option>
+        <option>Rice, Grains, Potatoes and Beans</option>
+        <option>Salads</option>
+        <option>Stocks and Soups</option>
+        <option>Vegetables</option>
+        <option>Research</option>
+        <option>Smoothies</option>
+        <option>Technique</option>
+        <option>Family Meals</option>
+        <option>The Garofalo Family Cookbook</option>
+        <option>Mom's Recipes</option>
       </select>
     </div>
   </div>
@@ -155,11 +179,38 @@
       </div>
       <div>
         <label class="field-label">Category</label>
-        <select class="field-input" id="f-category">
-          <option>Breakfast &amp; snacks</option>
-          <option>Mains</option><option>Sides</option>
-          <option>Soups &amp; salads</option>
-          <option>Desserts</option><option>Drinks</option>
+        <select class="field-input" id="f-category" onchange="handleCategoryChange(this)">
+          <option>Asian</option>
+          <option>Brines, Marinades, Sauces, and Rubs</option>
+          <option>Breads and Pizzas</option>
+          <option>Breakfast</option>
+          <option>Burgers</option>
+          <option>Cakes</option>
+          <option>Cookies</option>
+          <option>Frozen Desserts and Custard</option>
+          <option>Equipment</option>
+          <option>Fish and Seafood</option>
+          <option>Grilling and Smoking</option>
+          <option>Italian</option>
+          <option>Lunches</option>
+          <option>Meat</option>
+          <option>Mexican</option>
+          <option>Pickles</option>
+          <option>Pies, Cobblers, and Tarts</option>
+          <option>Poultry</option>
+          <option>Quinoa Casseroles</option>
+          <option>Recipes to Try</option>
+          <option>Rice, Grains, Potatoes and Beans</option>
+          <option>Salads</option>
+          <option>Stocks and Soups</option>
+          <option>Vegetables</option>
+          <option>Research</option>
+          <option>Smoothies</option>
+          <option>Technique</option>
+          <option>Family Meals</option>
+          <option>The Garofalo Family Cookbook</option>
+          <option>Mom's Recipes</option>
+          <option value="__new__">＋ Add new category...</option>
         </select>
       </div>
       <div>
@@ -292,6 +343,8 @@ let pendingSaveData = null;
 async function init() {
   // Ping Supabase to prevent free tier pausing (resets 7-day inactivity timer)
   keepSupabaseAlive();
+  // Load any custom categories from localStorage
+  loadCustomCategories();
 
   try {
     const customRows = await db.getCustomIngredients();
@@ -367,7 +420,7 @@ function newRecipe() {
   document.getElementById('delete-btn').style.display = 'none';
   document.getElementById('save-status').textContent = '';
   ['f-name','f-prep','f-cook','f-desc','f-serving-note'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('f-category').value = 'Breakfast & snacks';
+  document.getElementById('f-category').value = 'Breakfast';
   document.getElementById('f-servings').value = 4;
   document.getElementById('nut-banner').style.display = 'none';
   document.getElementById('nut-grid').style.display = 'none';
@@ -382,7 +435,7 @@ function newRecipe() {
 
 function loadIntoEditor(r) {
   document.getElementById('f-name').value = r.name || '';
-  document.getElementById('f-category').value = r.category || 'Mains';
+  document.getElementById('f-category').value = r.category || 'Meat';
   document.getElementById('f-servings').value = r.servings || 4;
   document.getElementById('f-prep').value = r.prep || '';
   document.getElementById('f-cook').value = r.cook || '';
@@ -1110,6 +1163,74 @@ function refreshNutrition() {
     // Mark as changed so Save will recalculate with final ingredients
     ingredientsChanged = true;
   }, 150);
+}
+
+// ── Custom categories ────────────────────────────────────────────────────────
+// Persisted to localStorage so they survive page refreshes
+let customCategories = [];
+
+function loadCustomCategories() {
+  try {
+    const saved = localStorage.getItem('myrecipebook_custom_cats');
+    if (saved) customCategories = JSON.parse(saved);
+  } catch(e) {}
+  customCategories.forEach(cat => addCategoryToDropdowns(cat, false));
+}
+
+function saveCustomCategories() {
+  try {
+    localStorage.setItem('myrecipebook_custom_cats', JSON.stringify(customCategories));
+  } catch(e) {}
+}
+
+function addCategoryToDropdowns(cat, save = true) {
+  // Add to editor dropdown (f-category) before the "Add new..." option
+  const editorSelect = document.getElementById('f-category');
+  if (editorSelect && ![...editorSelect.options].some(o => o.value === cat)) {
+    const newOpt = document.createElement('option');
+    newOpt.value = cat;
+    newOpt.textContent = cat;
+    // Insert before the last option (＋ Add new category...)
+    editorSelect.insertBefore(newOpt, editorSelect.lastElementChild);
+  }
+
+  // Add to filter dropdown (cat-filter) before the last option if it exists
+  const filterSelect = document.getElementById('cat-filter');
+  if (filterSelect && ![...filterSelect.options].some(o => o.value === cat)) {
+    const filterOpt = document.createElement('option');
+    filterOpt.value = cat;
+    filterOpt.textContent = cat;
+    filterSelect.appendChild(filterOpt);
+  }
+
+  if (save && !customCategories.includes(cat)) {
+    customCategories.push(cat);
+    saveCustomCategories();
+  }
+}
+
+function handleCategoryChange(selectEl) {
+  if (selectEl.value !== '__new__') return;
+
+  // Prompt for new category name
+  const name = window.prompt('Enter new category name:');
+  if (!name || !name.trim()) {
+    // Reset to first option if cancelled
+    selectEl.value = selectEl.options[0].value;
+    return;
+  }
+
+  const cat = name.trim();
+
+  // Check if already exists
+  if ([...selectEl.options].some(o => o.value === cat)) {
+    selectEl.value = cat;
+    return;
+  }
+
+  addCategoryToDropdowns(cat, true);
+  selectEl.value = cat;
+  showToast(`Category "${cat}" added`, 'success');
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────────

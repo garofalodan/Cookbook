@@ -35,7 +35,15 @@
 
 <script src="supabase.js"></script>
 <script>
-const CATEGORIES = ['Breakfast & snacks','Mains','Sides','Soups & salads','Desserts','Drinks'];
+const CATEGORIES = [
+  'Asian','Brines, Marinades, Sauces, and Rubs','Breads and Pizzas','Breakfast',
+  'Burgers','Cakes','Cookies','Frozen Desserts and Custard','Equipment',
+  'Fish and Seafood','Grilling and Smoking','Italian','Lunches','Meat','Mexican',
+  'Pickles','Pies, Cobblers, and Tarts','Poultry','Quinoa Casseroles',
+  'Recipes to Try','Rice, Grains, Potatoes and Beans','Salads','Stocks and Soups',
+  'Vegetables','Research','Smoothies','Technique','Family Meals',
+  'The Garofalo Family Cookbook',"Mom's Recipes"
+];
 
 function formatNutrition(nut) {
   if (!nut) return '';
