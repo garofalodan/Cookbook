@@ -27,6 +27,22 @@
     .editor-back:hover { color: var(--text); }
     .editor-actions { display: flex; gap: 8px; padding-top: 18px; border-top: 1px solid var(--border); margin-top: 20px; justify-content: flex-end; align-items: center; }
     .save-status { font-size: 12px; color: var(--text2); flex: 1; }
+    .mapping-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+    .mapping-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text3); font-weight: 600; padding: 0 8px 8px; }
+    .mapping-table td { padding: 7px 8px; border-top: 1px solid var(--border); vertical-align: middle; }
+    .mapping-table tr:hover td { background: var(--bg2); }
+    .mapping-ing { font-weight: 500; color: var(--text); }
+    .mapping-arrow { color: var(--text3); font-size: 14px; text-align: center; width: 24px; }
+    .mapping-match { color: var(--teal); font-weight: 500; }
+    .mapping-unmatched { color: var(--red); font-style: italic; }
+    .mapping-override { font-size: 12px; padding: 4px 8px; border: 1.5px solid var(--border2); border-radius: var(--radius); background: #fff; color: var(--text); font-family: var(--sans); width: 200px; }
+    .mapping-override:focus { outline: none; border-color: var(--amber-mid); }
+    .mapping-override.overridden { border-color: var(--amber-mid); background: var(--amber-lt); }
+    .mapping-cal { color: var(--text2); font-size: 11px; white-space: nowrap; }
+    .mapping-section { margin-top: 20px; }
+    .mapping-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .mapping-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--teal-dk); }
+    .mapping-subtitle { font-size: 11px; color: var(--text3); }
     .import-box { background: #fff; border: 1px solid var(--border2); border-radius: var(--radius-lg); padding: 24px; max-width: 680px; }
     .import-textarea { width: 100%; font-size: 13px; padding: 12px; border: 1px solid var(--border2); border-radius: var(--radius); background: var(--bg2); color: var(--text); font-family: var(--sans); resize: vertical; min-height: 200px; line-height: 1.6; }
     .import-textarea:focus { outline: none; border-color: var(--amber-mid); }
@@ -176,6 +192,23 @@
     </div>
     <textarea class="field-input" id="f-serving-note" style="min-height:60px" placeholder="e.g. Sprinkle hemp hearts and dried cherries before serving..."></textarea>
 
+    <div class="mapping-section" id="mapping-section" style="display:none">
+      <div class="section-divider" style="margin-top:18px">Ingredient database mapping</div>
+      <div class="mapping-header">
+        <span class="mapping-subtitle">Each recipe ingredient mapped to its database entry. Override any mapping that looks wrong.</span>
+      </div>
+      <table class="mapping-table" id="mapping-table">
+        <thead><tr>
+          <th>Recipe ingredient</th>
+          <th class="mapping-arrow"></th>
+          <th>Matched database entry</th>
+          <th>Override</th>
+          <th>Per 100g</th>
+        </tr></thead>
+        <tbody id="mapping-tbody"></tbody>
+      </table>
+    </div>
+
     <div class="editor-actions">
       <span class="save-status" id="save-status"></span>
       <button class="btn btn-sm btn-danger" onclick="deleteRecipe()" id="delete-btn" style="display:none">
@@ -319,6 +352,7 @@ function newRecipe() {
   document.getElementById('f-servings').value = 4;
   document.getElementById('nut-banner').style.display = 'none';
   document.getElementById('nut-grid').style.display = 'none';
+  document.getElementById('mapping-section').style.display = 'none';
   document.getElementById('ing-list').innerHTML = '';
   document.getElementById('step-list').innerHTML = '';
   addIngredientRow(); addIngredientRow(); addIngredientRow();
@@ -344,6 +378,7 @@ function loadIntoEditor(r) {
   if (!(r.steps || []).length) { addStepRow(); addStepRow(); }
   if (r.nutrition) {
     renderNutritionGrid(r.nutrition, document.getElementById('nut-grid'), document.getElementById('nut-banner'), ingList);
+    renderMappingTable(r.ingredients || [], r.servings || 4);
   } else {
     document.getElementById('nut-banner').style.display = 'none';
     document.getElementById('nut-grid').style.display = 'none';
@@ -427,6 +462,7 @@ async function saveRecipe() {
     const nut = calcNutrition(data.ingredients, data.servings);
     data.nutrition = nut;
     renderNutritionGrid(nut, document.getElementById('nut-grid'), document.getElementById('nut-banner'), document.getElementById('ing-list'));
+    renderMappingTable(data.ingredients, data.servings);
 
     if (nut.unmatched && nut.unmatched.length > 0) {
       lookupQueue = [...nut.unmatched];
@@ -444,7 +480,6 @@ async function saveRecipe() {
 async function finaliseSave(data) {
   // Recalculate with any newly looked-up ingredients
   if (data.ingredients && data.ingredients.length > 0 && (ingredientsChanged || !editingId)) {
-    data.servings = parseInt(data.servings) || 4;
     const nut = calcNutrition(data.ingredients, data.servings);
     data.nutrition = nut;
     renderNutritionGrid(nut, document.getElementById('nut-grid'), document.getElementById('nut-banner'), document.getElementById('ing-list'));
@@ -610,7 +645,6 @@ async function runImport() {
   const prompt = `You are a recipe parser. Extract structured data from the following recipe text and return ONLY valid JSON with no markdown, no explanation, no code fences.
 Return exactly this structure:
 {"name":"Recipe name","category":"one of: Breakfast & snacks, Mains, Sides, Soups & salads, Desserts, Drinks","servings":4,"prep":"10 min","cook":"30 min","desc":"One or two sentence description","ingredients":[{"name":"ingredient name","amount":"number only","unit":"g or ml or cup or tbsp or tsp or oz or lb or empty string"}],"steps":["Step one","Step two"],"servingNote":"optional or empty string"}
-IMPORTANT: "servings" must be an integer extracted from the text (e.g. "serves 4", "makes 12 cookies", "yield: 6"). Nutrition will be divided by this number to produce per-serving values. Default to 4 if not stated.
 Recipe text:\n${text}`;
 
   try {
@@ -619,8 +653,6 @@ Recipe text:\n${text}`;
     fill.style.width = '80%';
     const raw = json.content?.[0]?.text || '{}';
     const data = JSON.parse(raw.replace(/```json|```/g, '').trim());
-    // Ensure servings is always a valid integer — AI sometimes omits it
-    data.servings = parseInt(data.servings) || 4;
     if (data.ingredients && data.ingredients.length > 0) {
       data.nutrition = calcNutrition(data.ingredients, data.servings);
     }
@@ -698,6 +730,159 @@ async function deleteCustomIngredient(id, name) {
     showToast(`"${name}" removed`);
     renderCustomIngredients();
   } catch(e) { showToast('Could not delete ingredient', 'error'); }
+}
+
+// ── Ingredient mapping display ───────────────────────────────────────────────
+// Stores user overrides: { ingredientName -> overrideKey }
+const mappingOverrides = {};
+
+function renderMappingTable(ingredients, servings) {
+  const section = document.getElementById('mapping-section');
+  const tbody = document.getElementById('mapping-tbody');
+  if (!ingredients || ingredients.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  tbody.innerHTML = '';
+
+  ingredients.forEach(ing => {
+    if (!ing.name) return;
+    // Check for user override first
+    const overrideKey = mappingOverrides[ing.name.toLowerCase()];
+    const matchedData = overrideKey
+      ? NUT[overrideKey]
+      : matchIngredient(ing.name);
+    const matchedKey = overrideKey || getMatchedKey(ing.name);
+
+    const tr = document.createElement('tr');
+    const isUnmatched = !matchedData;
+
+    // Column 1: recipe ingredient
+    const tdIng = document.createElement('td');
+    tdIng.innerHTML = `<span class="mapping-ing">${ing.amount || ''}${ing.unit ? ' ' + ing.unit : ''} ${ing.name}</span>`;
+
+    // Column 2: arrow
+    const tdArrow = document.createElement('td');
+    tdArrow.className = 'mapping-arrow';
+    tdArrow.innerHTML = '<i class="ti ti-arrow-right"></i>';
+
+    // Column 3: matched entry
+    const tdMatch = document.createElement('td');
+    if (matchedData && matchedKey) {
+      const flag = overrideKey ? ' <span style="font-size:10px;background:var(--amber-lt);color:var(--amber-dk);padding:1px 6px;border-radius:4px;border:1px solid var(--amber-mid)">overridden</span>' : '';
+      tdMatch.innerHTML = `<span class="mapping-match">${matchedKey}</span>${flag}`;
+    } else {
+      tdMatch.innerHTML = `<span class="mapping-unmatched"><i class="ti ti-alert-circle"></i> No match found</span>`;
+    }
+
+    // Column 4: override input
+    const tdOverride = document.createElement('td');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'mapping-override' + (overrideKey ? ' overridden' : '');
+    input.placeholder = 'Type to override...';
+    input.value = overrideKey || '';
+    input.dataset.ingredient = ing.name.toLowerCase();
+    input.title = 'Type an ingredient name from our database to override the match';
+
+    // Autocomplete-style — validate on blur
+    input.addEventListener('change', function() {
+      applyMappingOverride(this.dataset.ingredient, this.value.trim(), servings, ingredients);
+    });
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') this.blur();
+    });
+    tdOverride.appendChild(input);
+
+    // Column 5: nutrition per 100g
+    const tdCal = document.createElement('td');
+    if (matchedData) {
+      tdCal.className = 'mapping-cal';
+      tdCal.innerHTML = `${Math.round(matchedData.cal)} kcal · ${Math.round(matchedData.carb)}g carbs · ${Math.round(matchedData.fat)}g fat · ${Math.round(matchedData.pro)}g protein`;
+    } else {
+      tdCal.innerHTML = '<span style="color:var(--text3);font-size:11px">—</span>';
+    }
+
+    tr.append(tdIng, tdArrow, tdMatch, tdOverride, tdCal);
+    tbody.appendChild(tr);
+  });
+}
+
+function getMatchedKey(name) {
+  // Returns the key that matchIngredient would use
+  const n = cleanIngredientName ? cleanIngredientName(name) : name.toLowerCase().trim();
+  const raw = name.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '');
+  const beforeComma = name.toLowerCase().split(',')[0].trim().replace(/[^a-z0-9 ]/g, '');
+
+  for (const candidate of [raw, n, beforeComma]) {
+    if (!candidate) continue;
+    if (NUT[candidate]) return candidate;
+    for (const key of Object.keys(NUT)) {
+      if (candidate === key || candidate.includes(key) || key.includes(candidate)) return key;
+    }
+  }
+  // Word overlap
+  const words = n.split(' ').filter(w => w.length > 1);
+  let bestKey = null, bestScore = 0;
+  for (const key of Object.keys(NUT)) {
+    const kw = new Set(key.split(' ').filter(w => w.length > 1));
+    const overlap = words.filter(w => kw.has(w)).length;
+    const score = overlap - Math.abs(words.length - kw.size) * 0.1;
+    if (score > bestScore) { bestScore = score; bestKey = key; }
+  }
+  return bestScore >= 1 ? bestKey : null;
+}
+
+function applyMappingOverride(ingredientName, overrideValue, servings, ingredients) {
+  const key = overrideValue.toLowerCase().trim();
+
+  if (!overrideValue) {
+    // Clear override
+    delete mappingOverrides[ingredientName];
+    showToast('Override cleared');
+  } else if (NUT[key]) {
+    // Valid key — apply override
+    mappingOverrides[ingredientName] = key;
+    showToast(`"${ingredientName}" now mapped to "${key}"`, 'success');
+  } else {
+    // Try fuzzy match
+    const fuzzy = Object.keys(NUT).find(k => k.includes(key) || key.includes(k));
+    if (fuzzy) {
+      mappingOverrides[ingredientName] = fuzzy;
+      showToast(`Mapped to "${fuzzy}"`, 'success');
+    } else {
+      showToast(`"${overrideValue}" not found in database — try a simpler name`, 'error');
+      return;
+    }
+  }
+
+  // Recalculate nutrition with overrides applied
+  const overriddenIngredients = ingredients.map(ing => {
+    const override = mappingOverrides[ing.name.toLowerCase()];
+    return override ? { ...ing, _overrideKey: override } : ing;
+  });
+
+  // Apply overrides to NUT temporarily during calculation
+  const savedEntries = {};
+  overriddenIngredients.forEach(ing => {
+    if (ing._overrideKey) {
+      const origKey = ing.name.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '');
+      savedEntries[origKey] = NUT[origKey];
+      NUT[origKey] = NUT[ing._overrideKey];
+    }
+  });
+
+  const nut = calcNutrition(ingredients, servings);
+
+  // Restore NUT
+  Object.entries(savedEntries).forEach(([k,v]) => {
+    if (v === undefined) delete NUT[k];
+    else NUT[k] = v;
+  });
+
+  renderNutritionGrid(nut, document.getElementById('nut-grid'), document.getElementById('nut-banner'), document.getElementById('ing-list'));
+  renderMappingTable(ingredients, servings);
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
